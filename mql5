@@ -1,0 +1,109 @@
+mql5
+//+------------------------------------------------------------------+
+//|                                           AutoPilotFX Pro.mq5    |
+//|                   Copyright 2021, Forex Robot Easy Team           |
+//|              https://www.forexroboteasy.com                        |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|                     Automatic Lot Size Calculation                |
+//+------------------------------------------------------------------+
+
+// Calculate the ideal lot size based on the trader's desired risk-reward ratio
+double CalculateLotSize(double riskPercentage, double stopLoss, double entryPrice) {
+    double accountBalance = AccountBalance();
+    double riskAmount = accountBalance * riskPercentage / 100;
+    double lotSize = riskAmount / MathAbs(entryPrice - stopLoss);
+    return NormalizeDouble(lotSize, MarketInfo(Symbol(), MODE_LOTSIZE));
+}
+
+// Check if the calculated lot size exceeds the maximum allowed exposure
+bool IsLotSizeExcessive(double lotSize) {
+    double maxExposure = AccountEquity() * 0.05; // Maximum allowed exposure is 5% of equity
+    return lotSize > maxExposure;
+}
+
+//+------------------------------------------------------------------+
+//|                     Advanced Trade Management                     |
+//+------------------------------------------------------------------+
+
+// Trailing Stop Loss: Track the market price and adjust the stop loss level accordingly
+void TrailingStopLoss(int ticket, double trailingStop) {
+    double currentPrice = MarketInfo(Symbol(), MODE_BID);
+    double stopLoss = OrderStopLoss();
+    double newStopLoss = currentPrice - trailingStop * _Point;
+    
+    if (newStopLoss > stopLoss) {
+        if (OrderModify(ticket, OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, CLR_NONE)) {
+            Print('Trailing Stop Loss modified successfully.');
+        } else {
+            Print('Failed to modify Trailing Stop Loss.');
+        }
+    }
+}
+
+// Break-even functionality: Automatically adjust the stop loss level to the entry price when the trade reaches a predefined profit target
+void BreakEven(int ticket, double profitTarget) {
+    double currentPrice = MarketInfo(Symbol(), MODE_BID);
+    double entryPrice = OrderOpenPrice();
+    double stopLoss = OrderStopLoss();
+    
+    if (currentPrice - entryPrice > profitTarget * _Point) {
+        double newStopLoss = entryPrice;
+        
+        if (newStopLoss > stopLoss) {
+            if (OrderModify(ticket, OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, CLR_NONE)) {
+                Print('Stop Loss adjusted to break-even.');
+            } else {
+                Print('Failed to adjust Stop Loss.');
+            }
+        }
+    }
+}
+
+// Automated Stop Loss and Take Profit Levels: Set and adjust stop loss and take profit levels for all open positions
+void SetStopLossAndTakeProfit() {
+    for (int i = 0; i < OrdersTotal(); i++) {
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) {
+            double stopLoss = OrderOpenPrice() - 100 * _Point; // Set stop loss 100 pips away from entry
+            double takeProfit = OrderOpenPrice() + 200 * _Point; // Set take profit 200 pips away from entry
+            
+            if (!OrderModify(OrderTicket(), OrderOpenPrice(), stopLoss, takeProfit, 0, CLR_NONE)) {
+                Print('Failed to set Stop Loss and Take Profit levels.');
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//|                     AutoPilotFX Pro Expert Advisor                |
+//+------------------------------------------------------------------+
+
+void OnTick() {
+    double riskPercentage = 1.0; // Desired risk percentage per trade
+    double stopLoss = 50.0; // Stop loss in pips
+    double entryPrice = SymbolInfoDouble(Symbol(), SYMBOL_ASK); // Use the current ask price as the entry price
+    
+    double lotSize = CalculateLotSize(riskPercentage, stopLoss, entryPrice);
+    
+    if (IsLotSizeExcessive(lotSize)) {
+        Print('Lot size exceeds maximum allowed exposure.');
+        return;
+    }
+    
+    // Open a trade with the calculated lot size, stop loss, and take profit levels
+    int ticket = OrderSend(Symbol(), OP_BUY, lotSize, entryPrice, 0, stopLoss, entryPrice + 2 * stopLoss, 'AutoPilotFX Pro', 0, 0, CLR_NONE);
+    
+    if (ticket > 0) {
+        Print('Trade opened successfully.');
+        
+        // Adjust stop loss and take profit levels for all open positions
+        SetStopLossAndTakeProfit();
+        
+        // Trailing stop and break-even management
+        TrailingStopLoss(ticket, 20.0); // Trailing stop of 20 pips
+        BreakEven(ticket, 100.0); // Move stop loss to break-even when trade is 100 pips in profit
+    } else {
+        Print('Failed to open trade.');
+    }
+}
